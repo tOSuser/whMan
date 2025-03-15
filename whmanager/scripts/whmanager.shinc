@@ -1,0 +1,1393 @@
+#: webhost manager library
+#:
+#: File : whmanager.shinc
+#
+#
+# Nexttop 2023-2025 (nexttop.se)
+# Maintenance nexttop -> hossein a.t. (osxx.com)
+#-------------------------------------------------
+#
+# Local variables:
+#  ORIGINALSCRIPT_PATH
+#  SCRIPT_PATH
+#
+#-------------------------------------------------
+
+function echoMessage () #@ USAGE echoMessage message
+{
+    echo -e "${FUNCNAME[1]}:${BASH_LINENO[1]} ${@}"
+}
+
+function echoTTY () #@ USAGE echoTTY message
+{
+    echo -e "${FUNCNAME[1]}:${BASH_LINENO[1]} ${@}"  > /dev/tty
+}
+
+function isExist () #@ USAGE isExist filePath/dirPath
+{
+    local objectPath=$1
+    test -f $objectPath
+    if [ $? -ne 0 ]; then
+        test -d $objectPath
+        return $?
+    fi
+    return 0
+}
+
+function createBackup () #@ USAGE createBackup backupMethod fdPath [backupPath]
+{
+    backupMethod=$1
+    fdPath=$2
+    backupDate=$(date +"%d-%m-%Y")
+    backupPath="$fdPath-$backupDate"
+    [ $# -gt 2 ] &&
+        backupPath=$3
+
+    isExist "$backupPath"
+    isExistExitcode=$?
+    while [ $isExistExitcode -eq 0 ]; do
+        backupPath="$backupPath.1"
+        isExist "$backupPath"
+        isExistExitcode=$?
+    done
+
+    if [ $backupMethod == 'cp' ]; then
+        cp -r $fdPath $backupPath
+        [ $? -ne 0 ] &&
+            return 1
+    elif [ $backupMethod == 'mv' ]; then
+        mv $fdPath $backupPath
+        [ $? -ne 0 ] &&
+            return 1
+    else
+        return 1
+    fi
+    return 0
+}
+
+function isContainersUp () #@ USAGE isContainersUp containersNames ...
+{
+    containersNames=( "$@" )
+    dockerPath=$(which docker)
+    [ $? -ne 0 ] &&
+        return 1
+    for container in ${containersNames[@]};
+    do
+        checkContainer=$(docker container inspect -f '{{.State.Running}}' $container)
+        exitcode=$?
+        ([ $exitcode -ne 0 ] || [ $checkContainer == "false" ]) &&
+            return 1
+    done
+    return 0
+}
+
+function findBasePath () #@ USAGE findBasePath container
+{
+    container=$1
+    basePath=$(docker inspect -f '{{ .Mounts }}' $container | xargs echo -n | grep -oP '\{\K[^\}]+' | grep ".*$container.*" | tail -1 | cut -d' ' -f2 | sed "s/\(.*\)\/$container.*/\1/"; return $((${PIPESTATUS[@]/%/ |} 0)))
+    ([ $? -ne 0 ] || [ $basePath  == "" ] ) &&
+        return 1
+    isDirExist "$basePath"
+    [ $? -ne 0 ] &&
+        return 1
+
+    echo "$basePath"
+    return 0
+}
+
+function getContainerIP () #@ USAGE getContainerIp container
+{
+    container=$1
+    containerIP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $container)
+    [ $? -ne 0 ] &&
+        return 1
+
+    regex0to255='([1-9]?[0-9]|1[0-9][0-9]|2([0-4][0-9]|5[0-5]))'
+    if [[ "${containerIP}" =~ ^(${regex0to255}\.){3}${regex0to255}$ ]]; then
+        echo "$containerIP"
+        return 0
+    fi
+
+    return 1
+}
+
+function containerExec () #@ USAGE containerExec container command ...
+{
+    container=$1
+    output=$(docker exec -it $container ${@:2})
+    exitCode=$?
+    output=${output//$'\r'}
+    echo "$output"
+    return $exitCode
+}
+
+function containersRestart () #@ USAGE containersRestart containersNames ...
+{
+    containersNames=( "$@" )
+    for container in ${containersNames[@]};
+    do
+        isContainersUp $container
+        if [ $? -ne 0 ]; then
+            echoMessage "'docker' or conteiners were not found!"
+        else
+            output=$(docker stop $container)
+            [ $? -ne 0 ] &&
+                echoMessage "'$container' couldn't be stopped!, ($output)" &&
+                return 1
+        fi
+        output=$(docker start $container)
+        [ $? -ne 0 ] &&
+            echoMessage "'$container' couldn't be started!, ($output)" &&
+            return 1        
+    done
+    return 0
+}
+
+function createDataList () #@ USAGE createDataList dataNamePerfix numberOfItems
+{
+    dataNamePerfix=$1
+    numberOfItems=$2
+    dataArrayStr=""
+    for (( i=1; i<$(($numberOfItems + 1)) ; i+=1 )) ; do
+        dataArrayStr="$dataArrayStr$dataNamePerfix$i "
+    done
+
+    echo "${dataArrayStr}"
+}
+
+function startIDToRegEx () #@ USAGE startIDToRegEx startID
+{
+    startID=$1
+    IDRegEx="null"
+
+    # check startID is a number
+    [ -n "$startID" ] && [ "$startID" -eq "$startID" ] 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "$IDRegEx"
+        return 1
+    fi
+
+    isTheFirstRangeSet=0
+    IDRegEx=""
+    for (( i=0; i<${#startID}; i++ )); do
+        if [ "$i" -eq "0" ] || [ "${startID:$i:1}" -eq "9" ]; then
+            IDRegEx="${IDRegEx}[${startID:$i:1}]"
+        elif [ "$isTheFirstRangeSet" -eq "0" ]; then
+            IDRegEx="${IDRegEx}[${startID:$i:1}-9]"
+            isTheFirstRangeSet=1
+        else
+            IDRegEx="${IDRegEx}[0-9]"
+        fi
+    done
+
+    echo "$IDRegEx"
+    return 0
+}
+
+function findUID () #@ USAGE findUID passwdFilePath userName
+{
+    ## Initialize values
+    passwdFilePath=$1
+    userName=$2
+
+    isFileExist "$passwdFilePath"
+    [ $? -ne 0 ] &&
+        echoMessage "passwd db ('$passwdFilePath') was not found!" &&
+        return 2
+    currentUserUID=$(grep -e "^$userName:.:.*:.*$" $passwdFilePath | cut -d':' -f3 | tail -1)
+    exitCode="$?"
+    ([ $exitCode -ne 0 ] || [ "$currentUserUID" == "" ]) &&
+        return 1
+    echo $currentUserUID
+    return 0
+}
+
+function findFirstAvailableUID () #@ USAGE findFirstAvailableUID passwdFilePath startUID
+{
+    ## Initialize values
+    passwdFilePath=$1
+    startUID=$2
+    startUIDRegEx=$(startIDToRegEx $startUID)
+    availableUID=$startUID
+
+    [ $startUIDRegEx == "null" ] &&
+        echo "0" &&
+        return 1
+
+    [ ! -f $passwdFilePath ] &&
+        return 1
+
+    currentUsedUID=$(grep -e "^.*:.:$startUIDRegEx:.*:.*:.*:.*$" $passwdFilePath | cut -d':' -f3 | sort -n | tail -1)
+    [ "$currentUsedUID" != "" ] &&
+        availableUID=$((currentUsedUID+1))
+    echo "$availableUID"
+    return 0
+}
+
+function addUserToDb () #@ USAGE addUserToDb userDBFile userID userName groupID
+{
+    ## Initialize values
+    userDBFile=$1
+    userID=$2
+    userName=$3
+    groupID=$4
+
+    echo "$userName:x:$userID:$groupID:$userName:/home/$userName:/bin/false" | putToFile "$userDBFile"
+    [ $? -ne 0 ] &&
+        return 1
+    return 0
+}
+
+function findGID () #@ USAGE findGID groupFilePath groupName
+{
+    ## Initialize values
+    groupFilePath=$1
+    groupName=$2
+
+    isFileExist "$groupFilePath"
+    [ $? -ne 0 ] &&
+        echoMessage "group db ('$groupFilePath') was not found!" &&
+        return 2
+
+    currentGroupUID=$(grep -e "^$groupName:.:.*:.*$" $groupFilePath | cut -d':' -f3 | tail -1)
+    exitCode="$?"
+    ([ $exitCode -ne 0 ] || [ "$currentGroupUID" == "" ]) &&
+        return 1
+    echo $currentGroupUID
+    return 0
+}
+
+function findUserGroup () #@ USAGE findUserGroup groupFilePath userName
+{
+    ## Initialize values
+    groupFilePath=$1
+    userName=$2
+
+    isFileExist "$groupFilePath"
+    [ $? -ne 0 ] &&
+        echoMessage "group db ('$groupFilePath') was not found!" &&
+        return 2
+
+    currentGroupName=$(grep -e "^.*:.:.*:.*$userName.*$" $groupFilePath | cut -d':' -f1 | tail -1)
+    exitCode="$?"
+    ([ $exitCode -ne 0 ] || [ "$currentGroupName" == "" ]) &&
+        return 1
+    echo $currentGroupName
+    return 0
+}
+
+function findFirstAvailableGID () #@ USAGE findFirstAvailableGID groupFilePath startGID
+{
+    ## Initialize values
+    groupFilePath=$1
+    startGID=$2
+    startGIDRegEx=$(startIDToRegEx $startGID)
+    availableGID=$startGID
+
+    [ $startGIDRegEx == "null" ] &&
+        echo "0" &&
+        return 1
+
+    [ ! -f $groupFilePath ] &&
+        return 1
+
+    currentUsedGID=$(grep -e "^.*:.:$startGIDRegEx:.*$" $groupFilePath | cut -d':' -f3 | sort -n | tail -1)
+    [ "$currentUsedGID" != "" ] &&
+        availableGID=$((currentUsedGID+1))
+    echo $availableGID
+    return 0
+}
+
+function addGroupToDb () #@ USAGE addGroupToDb groupDBFile groupID groupName
+{
+    ## Initialize values
+    groupDBFile=$1
+    groupID=$2
+    groupName=$3
+
+    echo "$groupName:x:$groupID:" | putToFile "$groupDBFile"
+    [ $? -ne 0 ] &&
+        return 1
+    return 0
+}
+
+function addUserToGroupDb () #@ USAGE addUserToGroupDb groupDBFile userName groupName
+{
+    ## Initialize values
+    groupDBFile=$1
+    userName=$2
+    groupName=$3
+
+echoMessage "addUserToGroupDb"
+    currentGroupLine=$(grep -e "^$groupName:.:.*:.*$" $groupDBFile | tail -1)
+    ([ $? -ne 0 ] || [ "$currentGroupLine" == "" ]) &&
+        return 1
+    newGroupLine="$currentGroupLine"
+    currentGroupUserList=$(echo "$currentGroupLine" | cut -d':' -f4)
+    [ "$currentGroupUserList" != "" ] &&
+        newGroupLine="${newGroupLine},"
+    newGroupLine=$newGroupLine$userName
+    sed -i "s/$currentGroupLine/$newGroupLine/g" $groupDBFile
+    return 0
+}
+
+function addUser () #@ USAGE addUser basePath startUID userName startGID groupName
+{
+    ## Initialize values
+    basePath=$1
+    startUID=$2
+    userName=$3
+    startGID=$4
+    groupName=$5
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    # check the username is not used before
+    output=$(findUID $userDBFile $userName)
+    findUIDExitcode=$?
+    userID=$output
+    [ $findUIDExitcode -eq 0 ] &&
+        echoMessage "A UID with the same name ($userName) was found!" &&
+        return 1
+
+    # Add gid if it needs
+    output=$(findGID $groupDBFile $groupName)
+    findGIDExitcode=$?
+    groupID=$output
+    if [ $findGIDExitcode -ne 0 ]; then
+        echoMessage "$output"
+        [ $findGIDExitcode -eq 2 ] &&
+            return 1
+
+        echoMessage "'$groupName' was not found, a new group is created!"
+        availableGID=$(findFirstAvailableGID $groupDBFile $startGID)
+        [ $? -ne 0 ] &&
+            echoMessage "Something went wrong throgh finding an available GID\n$groupDBFile\n$startGID" &&
+            return 1
+        groupID=$availableGID
+        output=$(addGroupToDb $groupDBFile $availableGID $groupName)
+        [ $? -ne 0 ] &&
+            echoMessage "$output" "Something went wrong throgh adding the group $groupName/$availableGID" &&
+            return 1
+    fi
+
+    # Add uid
+    if [ $findUIDExitcode -ne 0 ]; then
+        echoMessage "$output"
+        [ $findUIDExitcode -eq 2 ] &&
+            return 1
+
+        echoMessage "'$userName' was not found, a new user is added!"
+        availableUID=$(findFirstAvailableUID $userDBFile $startUID)
+        [ $? -ne 0 ] &&
+            echoMessage "Something went wrong throgh finding an available uid\n$userDBFile\n$startUID" &&
+            return 1
+        userID=$availableUID
+        output=$(addUserToDb $userDBFile $availableUID $userName $groupID)
+        [ $? -ne 0 ] &&
+            echoMessage "$output" "Something went wrong throgh adding the use $userName/$availableUID" &&
+            return 1
+    else
+        echoMessage "The user ($userName) hass been already added!"
+    fi
+
+    output=$(addUserToGroupDb $groupDBFile $userName $groupName)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh adding the user ($userName) to the group ($groupName)!" &&
+        return 1
+
+    return 0
+}
+
+function addConfNginx () #@ USAGE addConfNginx basePath userName groupName templatesTemporaryPath
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    siteName=$userName
+    groupName=$3
+    siteGroup=$groupName
+    templatesTemporaryPath=$4
+
+    nginxPath=$basePath/nginx
+
+    nginxConfPath=$nginxPath/conf.d/${siteName}.conf
+    isFileExist "$nginxConfPath"
+    [ $? -eq 0 ] &&
+        echoMessage "'$siteName' has been already added to Nginx!($nginxConfPath)" &&
+        return 1
+
+    ## Use the site group template if it exists otherwise default template is used
+    nginxTemplateConfPath=$templatesTemporaryPath/nginx
+    isFileExist "$nginxTemplateConfPath/${siteGroup}.conf"
+    isFileExistExitcode=$?
+    if [ $isFileExistExitcode -eq 0 ]; then
+        nginxTemplateConfPath=$nginxTemplateConfPath/${siteGroup}.conf
+    else
+        echoMessage "No Nginx template conf for $siteGroup was found, the default is used instead!"
+        nginxTemplateConfPath=$nginxTemplateConfPath/default.conf
+    fi
+    cp $nginxTemplateConfPath $nginxConfPath
+    [ $? -ne 0 ] &&
+        return 1
+    return 0
+}
+
+function addConfPhpfpm() #@ USAGE addConfPhpfpm basePath userID userName groupID groupName templatesTemporaryPath
+{
+    ## Initialize values
+    basePath=$1
+    userID=$2
+    userName=$3
+    siteName=$userName
+    groupID=$4
+    groupName=$5
+    siteGroup=$groupName
+    templatesTemporaryPath=$6
+
+    phpfpmPath=$basePath/php-fpm
+
+    phpfpmPoolConfPath=$phpfpmPath/pool.d/php-fpm${userID}.conf
+    isFileExist "$phpfpmPoolConfPath"
+    [ $? -eq 0 ] &&
+        echoMessage "'php-fpm${userID}.conf' has been already added to php-fpm!($phpfpmPoolConfPath)" &&
+        return 1
+
+    phpTemplateConfPath=$templatesTemporaryPath/php-fpm/default.conf
+    cp $phpTemplateConfPath $phpfpmPoolConfPath
+
+    ##Add the site php-fpm pool to supervisord
+    supervisordConfPath=$phpfpmPath/conf.d/supervisord.conf
+    isFileExist "$supervisordConfPath"
+    [ $? -ne 0 ] &&
+        echoMessage "No supervisord.conf was found ($supervisordConfPath)" &&
+        return 1
+
+    grep -e "^?program:php-fpm$userID?.*$" $supervisordConfPath
+    [ $? -eq 0 ] &&
+        echoMessage "'php-fpm$userID' ($userName) has been already added to supervisord.conf!($supervisordConfPath)" &&
+        return 1
+
+    supervisordTemplateConfPath=$templatesTemporaryPath/supervisord/default.conf
+    cat $supervisordTemplateConfPath | putToFile $supervisordConfPath
+
+    return 0
+}
+
+function addConfBind9() #@ USAGE addConfBind9 basePath userName groupName templatesTemporaryPath
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    siteName=$userName
+    groupName=$3
+    siteGroup=$groupName
+    templatesTemporaryPath=$4
+
+    bindPath=$basePath/bind
+
+    bindRpzPath=$bindPath/db.rpz.host-whitelist.local
+    isFileExist "$bindRpzPath"
+    bindRpzPathExist=$?
+    if [ $bindRpzPathExist -eq 0 ]; then
+        grep -e "^$siteName.*$" $bindRpzPath
+        if [ $? -ne 0 ]; then
+            bindTemplateRpzPath=$templatesTemporaryPath/bind9/rpz.host-whitelist.local
+            cat $bindTemplateRpzPath | putToFile $bindRpzPath
+        else
+            echoMessage "'$siteName' has been already added to the bind RPZ list!($bindRpzPath)"
+        fi
+    else
+        echoMessage "No '$sbindRpzPath' was found!"
+    fi
+
+    bindDbPath=$bindPath/dbs/db.${userName}.int
+    isFileExist "$bindDbPath"
+    bindDbPathExist=$?
+    if [ $bindDbPathExist -ne 0 ]; then
+        bindTemplateDbPath=$templatesTemporaryPath/bind9/db.default
+        cp $bindTemplateDbPath $bindDbPath
+    else
+        echoMessage "'${userName}.int' has been already added to the bind db!($bindDbPath)"
+    fi
+
+    isFileExist "$bindDbPath"
+    bindDbPathExist=$?
+
+    bindZonesPath=$bindPath/dbs/named.conf.host-zones
+    isFileExist "$bindZonesPath"
+    bindZonesPathExist=$?
+    if [ $bindZonesPathExist -eq 0 ] && [ $bindDbPathExist -eq 0 ]; then
+        grep -o "^zone\s*\"$siteName\.int\".*$" "$bindZonesPath"
+        grepExitcode=$?
+        if [ $grepExitcode -ne 0 ]; then
+            bindTemplateZonePath=$templatesTemporaryPath/bind9/named.conf.host-zones
+            cat $bindTemplateZonePath | putToFile $bindZonesPath
+        else
+            echoMessage "'${userName}.int' has been already added to the bind zones!($bindZonesPath)"
+        fi
+    else
+        echoMessage "'$bindZonesPath' was not found"
+    fi
+
+    return 0
+}
+
+function addConfs () #@ USAGE addConfs basePath userName groupName templatesTemporaryPath
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    siteName=$userName
+    groupName=$3
+    siteGroup=$groupName
+    templatesTemporaryPath=$4
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    # find UID and GID for the given site name
+    output=$(findUID $userDBFile $userName)
+    findUIDExitcode=$?
+    userID=$output
+    [ $findUIDExitcode -ne 0 ] &&
+        echoMessage "$output" "The user ($userName) was not found!" &&
+        return 1
+
+    output=$(findGID $groupDBFile $groupName)
+    findGIDExitcode=$?
+    groupID=$output
+    [ $findGIDExitcode -ne 0 ] &&
+        echoMessage "$output" "The group ($groupName) was not found!" &&
+        return 1
+
+    #Update conf templates to use for the given site
+    find $templatesTemporaryPath -type f | while read file; do
+        sed -i -e "s+#USERUID#+${userID//+/\\+}+g" -e "s+#GROUPID#+${groupID//+/\\+}+g"\
+            -e "s+#SITENAME#+${siteName//+/\\+}+g" -e "s+#SITEGROUP#+${siteGroup//+/\\+}+g"\
+            $file
+    done
+
+    output=$(addConfNginx $basePath $userName $groupName $templatesTemporaryPath)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh configuring Nginx!" &&
+        return 1
+
+    output=$(addConfPhpfpm $basePath $userID $userName $groupID $groupName $templatesTemporaryPath)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh configuring Php-fpm!" &&
+        return 1
+
+    output=$(addConfBind9 $basePath $userName $groupName $templatesTemporaryPath)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh configuring Bind9!" &&
+        return 1
+
+    return 0
+}
+
+function initializeSiteHome () #@ USAGE initializeSiteHome homePath skelPath
+{
+    ## Initialize values
+    homePath=$1
+    skelPath=$2
+
+    return 0
+}
+
+function createHome () #@ USAGE createHome basePath userName groupName templatesTemporaryPath
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    groupName=$3
+    templatesTemporaryPath=$4
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    output=$(findUID $userDBFile $userName)
+    findUIDExitcode=$?
+    userID=$output
+    [ $findUIDExitcode -ne 0 ] &&
+        echoMessage "The user($userName) was not found!" &&
+        return 1
+
+    output=$(findGID $groupDBFile $groupName)
+    findGIDExitcode=$?
+    groupID=$output
+    [ $findGIDExitcode -ne 0 ] &&
+        echoMessage "The group($groupName) was not found!" &&
+        return 1
+
+    homePath=$basePath/home/$userName
+    isDirExist "$homePath"
+    [ $? -eq 0 ] &&
+        groupName=$(stat -c "%G" $homePath) &&
+        echoMessage "The home($homePath) has been already created and used the group $groupName" &&
+        return 1
+
+    mkdir $homePath
+    [ $? -ne 0 ] &&
+        echoMessage "Something went wrong during creating $homePath" &&
+        return 1
+
+    homeSkelPath=$templatesTemporaryPath/home/skel
+    siteType=default
+    isDirExist "$homeSkelPath/$groupName"
+    if [ $? -eq 0 ]; then
+        siteType=$groupName
+    else
+        echoMessage "No home skeleton was found for $groupName, a default skeleton was used instead!"
+    fi
+
+    homeSkelPath=$homeSkelPath/$siteType
+    cp -r $homeSkelPath/* $homePath
+    [ $? -ne 0 ] &&
+        echoMessage "Something went wrong during copying the skeleton to $homePath" &&
+        return 1
+
+    #Initialize the home
+    addonsPath=$ORIGINALSCRIPT_PATH/addons
+    isFileExist $addonsPath/${siteType}.shinc
+    if [ $? -ne 0 ]; then
+        echoMessage "No addon to initialize was found $homePath ($addonsPath/${siteType}.shinc)"
+    else
+        . $addonsPath/${siteType}.shinc
+    fi
+    initializeSiteHome $homePath
+    [ $? -ne 0 ] &&
+        echoMessage "Something went wrong during initializing the home ($homePath)" &&
+        return 1
+
+    return 0
+}
+
+function updateHomeOwner () #@ USAGE updateHomeOwner basePath userName groupName
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    groupName=$3
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    output=$(findUID $userDBFile $userName)
+    findUIDExitcode=$?
+    userID=$output
+    [ $findUIDExitcode -ne 0 ] &&
+        echoMessage "The user($userName) was not found!" &&
+        return 1
+
+    output=$(findGID $groupDBFile $groupName)
+    findGIDExitcode=$?
+    groupID=$output
+    [ $findGIDExitcode -ne 0 ] &&
+        echoMessage "The group($groupName) was not found!" &&
+        return 1
+
+    homeExternalPath=$basePath/home/$userName
+    homeInternalPath=/home/$userName
+    isDirExist "$homeExternalPath"
+    [ $? -ne 0 ] &&
+        echoMessage "No home($homeExternalPath) found for $userName/$groupName" &&
+        return 1
+
+    whmanContainer=whman
+    isContainersUp $whmanContainer
+    [ $? -ne 0 ] &&
+        echo -e "'docker' or conteiners were not found!" &&
+        return 1
+
+    output=$(containerExec $whmanContainer chown -R $userID:$groupID $homeInternalPath)    
+    [ $? -ne 0 ] &&
+        echoMessage "Something went wrong during applying permissions to $output" &&
+        return 1
+    return 0
+}
+
+function addHost () #@ USAGE addHost basePath startUID siteName startGID siteGroup
+{
+    ## Initialize values
+    basePath=$1
+    startUID=$2
+    siteName=$3
+    userName=$siteName
+    startGID=$4
+    siteGroup=$5
+    groupName=$siteGroup
+
+    isDirExist $basePath
+    [ $? -ne 0 ] &&
+        echo -e "'$basePath' was not found!" &&
+        return 1
+
+    # Add user/group of it does not exist on DBs
+    output=$(addUser $basePath $startUID $userName $startGID $groupName)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh adding user($userName)/group($groupName)" &&
+        return 1
+
+    templatesSourcePath=$ORIGINALSCRIPT_PATH/templates
+    isDirExist $templatesSourcePath
+    [ $? -ne 0 ] &&
+        echoMessage "'$templatesSourcePath' was not found!" &&
+        return 1
+
+    templatesTemporaryPath=$(mktemp -d)
+    cp -r $templatesSourcePath/* $templatesTemporaryPath/
+    [ $? -ne 0 ] &&
+        echoMessage "Something went wrong during copying '$templatesSourcePath' to '$templatesTemporaryPath'!" &&
+        return 1
+
+    output=$(addConfs $basePath $userName $groupName $templatesTemporaryPath)
+    [ $? -ne 0 ] &&
+        rm -r $templatesTemporaryPath &&
+        echoMessage "$output" "Something went wrong throgh updating containers' confugurations!" &&
+        return 1
+
+    output=$(createHome $basePath $userName $groupName $templatesTemporaryPath)
+    [ $? -ne 0 ] &&
+        rm -r $templatesTemporaryPath &&
+        echoMessage "$output" "Something went wrong throgh creating home for ($userName)/($groupName)" &&
+        return 1
+
+    rm -r $templatesTemporaryPath
+
+    output=$(updateHomeOwner $basePath $userName $groupName)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh set home owner ($userName)/($groupName)" &&
+        return 1
+
+    return 0
+}
+
+function verifyHost () #@ USAGE verifyHost basePath siteName siteGroup verifyMode
+{
+    verifyStatus=0
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    siteName=$userName
+    groupName=$3
+    siteGroup=$groupName
+
+    verifyMode='A'
+    if [ $# -gt 3 ] && [ $4 == 'N' ]; then
+        verifyMode=$4
+    fi
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    if [ $verifyMode == 'A' ]; then
+        output=$(findUID $userDBFile $userName)
+        findUIDExitcode=$?
+        userID=$output
+        [ $findUIDExitcode -ne 0 ] &&
+            echoMessage "The user($userName) was not found!" &&
+            verifyStatus=1
+
+        output=$(findGID $groupDBFile $groupName)
+        findGIDExitcode=$?
+        groupID=$output
+        [ $findGIDExitcode -ne 0 ] &&
+            echoMessage "The group($groupName) was not found!" &&
+            verifyStatus=1
+
+        output=$(findUserGroup $groupDBFile $userName)
+        findUserGroupExitcode=$?
+        if [ $findUserGroupExitcode -ne 0 ]; then
+            echoMessage "The user($userName) has no group!" &&
+            verifyStatus=1
+        else
+            [ $output != $groupName ] &&
+                echoMessage "The user group ($groupName) is not matched with $output!" &&
+                verifyStatus=1
+        fi
+
+        homeExternalPath=$basePath/home/$userName
+        homeInternalPath=/home/$userName
+        isDirExist "$homeExternalPath"
+        if [ $? -ne 0 ]; then
+            echoMessage "The home($homeExternalPath) was not found" &&
+            verifyStatus=1
+        else
+            whmanContainer=whman
+            isContainersUp $whmanContainer
+            [ $? -ne 0 ] &&
+                echo -e "'docker' or conteiners were not found!" &&
+                return 1
+
+            homeUserName=$(containerExec $whmanContainer stat -c "%U" $homeInternalPath)
+            [ $? -ne 0 ] &&
+                echoMessage "Something went wrong, $homeUserName" &&
+                verifyStatus=1
+            homeGroupName=$(containerExec $whmanContainer stat -c "%G" $homeInternalPath)
+            [ $? -ne 0 ] &&
+                echoMessage "Something went wrong, $homeGroupName" &&
+                verifyStatus=1
+
+            (([ -z ${homeUserName+x} ] && [ $homeUserName != $userName ]) || ([ -z ${homeGroupName+x} ] && [ $homeGroupName != $groupName ])) &&
+                echoMessage "Home user/group are not correct ($userName/$groupName <#> $homeUserName/$homeGroupName)" &&
+                verifyStatus=1
+        fi
+    else
+        output=$(findUID $userDBFile $userName)
+        findUIDExitcode=$?
+        [ $findUIDExitcode -eq 0 ] &&
+            echoMessage "The user($userName) was found!" &&
+            verifyStatus=1
+
+        userID='.*'
+        groupID='.*'
+        homeExternalPath=$basePath/home/$userName
+        homeInternalPath=/home/$userName
+        isDirExist "$homeExternalPath"
+        [ $? -eq 0 ] &&
+            echoMessage "The home($homeExternalPath) was found!" &&
+            verifyStatus=1
+    fi
+
+    if [ $verifyMode == 'A' ]; then
+        #Check files
+        data_1=( 'etc/passwd' "^$siteName:x:$userID:$groupID:$siteName:/home/$siteName:/bin/false" )
+        data_2=( 'etc/group' "^$groupName:x:$groupID:.*$siteName" )
+        data_3=( "nginx/conf.d/$siteName.conf" "server_name[[:space:]]$siteName" )
+        data_4=( "nginx/conf.d/$siteName.conf" "fastcgi_pass.*:$userID" )
+        data_5=( 'php-fpm/conf.d/supervisord.conf' "[[]program:php-fpm$userID[]]" )
+        data_6=( "php-fpm/pool.d/php-fpm$userID.conf" "user[[:space:]]=[[:space:]]$siteName" )
+        data_7=( "php-fpm/pool.d/php-fpm$userID.conf" "listen[[:space:]]=[[:space:]][[]::[]]:$userID" )
+        data_8=( 'bind/db.rpz.host-whitelist.local' "$siteName\.int[[:space:]]IN[[:space:]]CNAME[[:space:]]rpz-passthru[.]" )
+        data_9=( "bind/dbs/db.$siteName.int" "root[.]$siteName[.]" )
+        data_10=( 'bind/dbs/named.conf.host-zones' "zone[[:space:]].$siteName[.]int." )
+        arrTestData=( $(createDataList 'data_' 10) )
+
+        for testData in ${arrTestData[@]};
+        do
+            eval filePath='"${'$testData'[0]}"'
+            eval dataToCheck='"${'$testData'[1]}"'
+
+            currentFilePath="$basePath/$filePath"
+            isFileExist "$currentFilePath"
+            fileExistStatus=$?
+
+            if [ $fileExistStatus -ne 0 ]; then
+                echoMessage "'$currentFilePath' was not created!" &&
+                verifyStatus=1
+            else
+                [ "$dataToCheck" != '-' ] &&
+                    output=$(grep -e "$dataToCheck" "$currentFilePath") &&
+                    [ "$output" == "" ] &&
+                        echoMessage "'$currentFilePath' does not containe '$dataToCheck'!" &&
+                        verifyStatus=1
+            fi
+        done
+    elif [ $verifyMode == 'N' ]; then
+        #Check files
+        data_1=( 'etc/passwd' "^$siteName:x:$userID:$groupID:$siteName:/home/$siteName:/bin/false" )
+        data_2=( 'etc/group' "^$groupName:x:$groupID:.*$siteName" )
+        data_3=( "nginx/conf.d/$siteName.conf" "-" )
+        data_4=( 'bind/db.rpz.host-whitelist.local' "$siteName.int[[:space:]]IN~CNAME[[:space:]]rpz-passthru[.]" )
+        data_5=( "bind/dbs/db.$siteName.int" "-" )
+        data_6=( 'bind/dbs/named.conf.host-zones' "zone[[:space:]].$siteName[.]int." )
+        arrTestData=( $(createDataList 'data_' 6) )
+
+        for testData in ${arrTestData[@]};
+        do
+            eval filePath='"${'$testData'[0]}"'
+            eval dataToCheck='"${'$testData'[1]}"'
+
+            currentFilePath="$basePath/$filePath"
+            isFileExist "$currentFilePath"
+            fileExistStatus=$?
+
+            if [ "$dataToCheck" == '-' ]; then
+                [ $fileExistStatus -eq 0 ] &&
+                    echoMessage "'$currentFilePath' was found!" &&
+                    verifyStatus=1
+            else 
+                if [ $fileExistStatus -eq 0 ]; then
+                    output=$(grep -e "$dataToCheck" "$currentFilePath") &&
+                    [ "$output" != "" ] &&
+                        echoMessage "'$currentFilePath' containes '$dataToCheck'!" &&
+                        verifyStatus=1
+                fi
+            fi
+        done
+    fi
+
+    return $verifyStatus
+}
+
+function setHostMode () #@ USAGE setHostMode siteName siteMode
+{
+    ## Initialize values
+    userName=$1
+    siteName=$userName
+    siteMode=$2
+    siteNewMode=700
+    if [ -z ${siteMode+x} ] || [ $siteMode == 'protect' ]; then
+        siteNewMode=700
+    else
+        siteNewMode=777
+    fi
+
+    whmanContainer=whman
+    isContainersUp $whmanContainer
+    [ $? -ne 0 ] &&
+        echo -e "'docker' or conteiners were not found!" &&
+        return 1
+
+    homeInternalPath=/home/$siteName
+    output=$(containerExec $whmanContainer "test -d $homeInternalPath")
+    [ $? -ne 0 ] &&
+        echoMessage "The home($homeInternalPath) was not found" &&
+        return 1
+
+    homeUserName=$(containerExec $whmanContainer stat -c '%U' $homeInternalPath)
+    ([ $? -ne 0 ] || [ "$userName" != "$homeUserName" ]) &&
+        echoMessage "Something went wrong during getting the site owner, $userName <#> $homeUserName" &&
+        return 1
+
+    output=$(containerExec $whmanContainer chmod -R $siteNewMode $homeInternalPath)
+    [ $? -ne 0 ] &&
+        echoMessage "Something went wrong during applying permissions, $output" &&
+        return 1
+
+    return 0
+}
+
+function removeConfNginx () #@ USAGE removeConfNginx basePath userName
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    siteName=$userName
+
+    nginxPath=$basePath/nginx
+
+    nginxConfPath=$nginxPath/conf.d/${siteName}.conf
+    isFileExist "$nginxConfPath"
+    [ $? -ne 0 ] &&
+        echoMessage "'$siteName' was not found!($nginxConfPath)" &&
+        return 2
+
+    rm $nginxConfPath
+    [ $? -ne 0 ] &&
+        echoMessage "Something went wrong during removing '$nginxConfPath', $output" &&
+        return 1
+    return 0
+}
+
+function removeConfPhpfpm() #@ USAGE removeConfPhpfpm basePath userName
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    siteName=$userName
+
+    returnCode=0
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    output=$(findUID $userDBFile $userName)
+    findUIDExitcode=$?
+    userID=$output
+    [ $findUIDExitcode -ne 0 ] &&
+        echoMessage "The user($userName) was not found!" &&
+        returnCode=1 &&
+        return $returnCode
+
+    phpfpmPath=$basePath/php-fpm
+
+    ##Remove the site php-fpm from supervisord
+    supervisordConfFilePath=$phpfpmPath/conf.d/supervisord.conf
+    isFileExist "$supervisordConfFilePath"
+    if [ $? -eq 0 ]; then
+        createBackup 'cp' "$supervisordConfFilePath"
+        [ $? -ne 0 ] &&
+            echoMessage "Somthing went wrong during create a backup from '$supervisordConfFilePath'!" &&
+            returnCode=1 &&
+            return $returnCode
+
+
+        supervisordSectionOnFile="\[program:php-fpm$userID\]"
+        grep -zq "$supervisordSectionOnFile" "$supervisordConfFilePath"
+        if [ $? -eq 0 ]; then
+            grep -zq "$supervisordSectionOnFile.*\[" "$supervisordConfFilePath"
+            if [ $? -eq 0 ]; then
+                sedSubExpression='{//!d}'
+                sed -i "/$supervisordSectionOnFile/,/\[/$sedSubExpression" $supervisordConfFilePath
+                sed -i "/$supervisordSectionOnFile/d" $supervisordConfFilePath
+            else
+                sed -i "/$supervisordSectionOnFile/,\$d" $supervisordConfFilePath
+            fi
+            [ $? -ne 0 ] &&
+                echoMessage "Somthing went wrong during removing section '$supervisordSectionOnFile' from '$supervisordConfFilePath'!" &&
+                returnCode=2
+        fi
+    else
+        echoMessage "No supervisord conf was not found!. ('$supervisordConfFilePath')"
+        returnCode=2
+    fi
+
+    ##Remove the site pool
+    phpfpmPoolConfFilePath="$basePath/php-fpm/pool.d/php-fpm$userID.conf"
+    isFileExist "$phpfpmPoolConfFilePath"
+    if [ $? -eq 0 ]; then
+        rm "$phpfpmPoolConfFilePath"
+    else
+        echoMessage "No php-fpm pool conf was not found for $userID!. ('$phpfpmPoolConfFilePath')"
+        returnCode=2
+    fi
+
+    return $returnCode
+}
+
+function removeUser() #@ USAGE removeUser basePath userName
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+
+    returnCode=0
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    output=$(findUID $userDBFile $userName)
+    findUIDExitcode=$?
+    userID=$output
+    [ $findUIDExitcode -ne 0 ] &&
+        echoMessage "The user($userName) was not found!" &&
+        return 1
+    userSectionOnUserDBFile="$userName:*."
+    output=$(grep -e "$userSectionOnUserDBFile" "$userDBFile") &&
+    if [ $? -eq 0 ] && [ "$output" != "" ]; then
+        createBackup 'cp' "$userDBFile"
+        [ $? -ne 0 ] &&
+            echoMessage "Somthing went wrong during create a backup from '$userDBFile'!" &&
+            returnCode=1 &&
+            return $returnCode
+
+        sed -i "/$userSectionOnUserDBFile/d" $userDBFile
+        [ $? -ne 0 ] &&
+            echoMessage "Somthing went wrong during removing '$userName' from '$userDBFile'!" &&
+            returnCode=1 &&
+            return $returnCode
+    else
+        echoMessage "'$userDBFile' does not containe '$userSectionOnUserDBFile'!" &&
+        returnCode=2
+    fi
+
+    groupSectionOngroupDBFile=".*:x:.*:.*$userName.*"
+    output=$(grep -e "$groupSectionOngroupDBFile" "$groupDBFile")
+    if [ $? -eq 0 ] && [ "$output" != "" ]; then
+        userNameStrToRemove=$userName
+        [ "${output//$userName,/}" != "$output" ] &&
+            userNameStrToRemove="$userName,"
+
+        createBackup 'cp' "$groupDBFile"
+        [ $? -ne 0 ] &&
+            echoMessage "Somthing went wrong during create a backup from '$groupDBFile'!" &&
+            returnCode=1 &&
+            return $returnCode
+
+        sed -i "s/\(.*:x:.*:.*\)$userNameStrToRemove/\1/" $groupDBFile
+        [ $? -ne 0 ] &&
+            echoMessage "Somthing went wrong during removing '$userName' from '$groupDBFile'!" &&
+            returnCode=1 &&
+            return $returnCode
+    else
+        echoMessage "'$groupDBFile' does not containe '$groupSectionOngroupDBFile'!"
+        returnCode=2
+    fi
+    return $returnCode
+}
+
+function removeConfBind9() #@ USAGE removeConfBind9 basePath userName
+{
+    ## Initialize values
+    basePath=$1
+    userName=$2
+    siteName=$userName
+
+    returnCode=0
+
+    bindPath=$basePath/bind
+    bindRpzPath=$bindPath/db.rpz.host-whitelist.local
+    isFileExist "$bindRpzPath"
+    if [ $? -eq 0 ]; then
+        grep -qe ".*$siteName.*$" "$bindRpzPath"
+        if [ $? -eq 0 ]; then
+            createBackup 'cp' "$bindRpzPath"
+            [ $? -ne 0 ] &&
+                echoMessage "Somthing went wrong during create a backup from '$bindRpzPath'!" &&
+                returnCode=1 &&
+                return $returnCode
+
+            sed -i "/.*$siteName.*/d" $bindRpzPath
+        else
+            echoMessage "'$siteName' was not found on the bind RPZ list!($bindRpzPath)"
+            returnCode=2
+        fi
+    else
+        echoMessage "No '$bindRpzPath' was found!"
+        returnCode=2
+    fi
+
+    bindZonesPath=$bindPath/dbs/named.conf.host-zones
+    isFileExist "$bindZonesPath"
+    if [ $? -eq 0 ]; then
+        bindZoneSectionOnFile="zone\s*\"$siteName.int\".*"
+        output=$(grep -o "^$bindZoneSectionOnFile$" "$bindZonesPath")
+        if [ $? -eq 0 ] && [ "$output" != "" ]; then
+            createBackup 'cp' "$bindZonesPath"
+            [ $? -ne 0 ] &&
+                echoMessage "Somthing went wrong during create a backup from '$bindZonesPath'!" &&
+                returnCode=1 &&
+                return $returnCode
+            grep -zq "$bindZoneSectionOnFile.*zone" "$bindZonesPath"
+            if [ $? -eq 0 ]; then
+                sedSubExpression='{//!d}'
+                sed -i "/$bindZoneSectionOnFile/,/\zone/$sedSubExpression" $bindZonesPath
+                sed -i "/$bindZoneSectionOnFile/d" $bindZonesPath
+            else
+                sed -i "/$bindZoneSectionOnFile/,\$d" $bindZonesPath
+            fi
+        else
+            echoMessage "'${userName}.int' was not found on the bind zones!($bindZonesPath)"
+            returnCode=2
+        fi
+    else
+        echoMessage "'$bindZonesPath' was not found"
+        returnCode=2
+    fi
+
+    bindDbPath=$bindPath/dbs/db.${userName}.int
+    isFileExist "$bindDbPath"
+    bindDbPathExist=$?
+    if [ $bindDbPathExist -eq 0 ]; then
+        rm $bindDbPath
+        [ $? -ne 0 ] &&
+            echoMessage "Somthing went wrong during removing '$bindDbPath'" &&
+            returnCode=2
+    fi
+
+    return $returnCode
+}
+
+
+function removeHost () #@ USAGE removeHost basePath siteName removeMode
+{
+    ## Initialize values
+    basePath=$1
+    siteName=$2
+    userName=$siteName
+
+    removeMode='soft'
+    if [ $# -gt 2 ] && [ $3 == 'purge' ]; then
+        removeMode=$3
+    fi
+
+    returnCode=0
+    removeConfNginx $basePath $userName
+    exitCode=$?
+    returnCode=$(($returnCode + $exitCode))
+
+    removeConfPhpfpm $basePath $userName
+    exitCode=$?
+    returnCode=$(($returnCode + $exitCode))
+
+    setHostMode $siteName 'open'
+    exitCode=$?
+    returnCode=$(($returnCode + $exitCode))
+
+    removeUser $basePath $userName
+    exitCode=$?
+    returnCode=$(($returnCode + $exitCode))
+
+    removeConfBind9 $basePath $userName
+    exitCode=$?
+    returnCode=$(($returnCode + $exitCode))
+
+    whmanContainer=whman
+    isContainersUp $whmanContainer
+    [ $? -ne 0 ] &&
+        echo -e "'docker' or conteiners were not found!" &&
+        return 1
+
+    homePath=$basePath/home/$userName
+    homeInternalPath=/home/$userName
+    isDirExist "$homePath"
+    if [ $? -eq 0 ]; then
+        if [ $removeMode == 'purge' ]; then
+            output=$(containerExec $whmanContainer rm -r $homeInternalPath)
+            exitCode=$?
+            returnCode=$(($returnCode + $exitCode))
+            [ $exitCode -ne 0 ] &&
+                echoMessage "Something went wrong during removing $homePath"
+        else
+            createBackup 'mv' $homePath
+            exitCode=$?
+            returnCode=$(($returnCode + $exitCode))
+        fi
+    fi
+
+    return $returnCode
+}
+
+function chmodHost () #@ USAGE chmodHost basePath siteName siteMode
+{
+    ## Initialize values
+    basePath=$1
+    siteName=$2
+    userName=$siteName
+    siteMode=$3
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+
+    output=$(findUserGroup $groupDBFile $userName)
+    findUserGroupExitcode=$?
+    [ $findUserGroupExitcode -ne 0 ] &&
+        echoMessage "The user($userName) has no group!" &&
+        return 1
+    groupName=$output
+
+    output=$(updateHomeOwner $basePath $userName $groupName)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh set home owner ($userName)/($groupName)" &&
+        return 1
+
+    output=$(setHostMode $siteName $siteMode)
+    [ $? -ne 0 ] &&
+        echoMessage "$output" "Something went wrong throgh set permissions!" &&
+        return 1
+    return 0
+}
+
+function cleanUp () #@ USAGE cleanUp basePath
+{
+    ## Initialize values
+    basePath=$1
+
+    returnCode=0
+
+    backupFileGroup_1=( 'host-zones' "$basePath/bind/dbs" 'named.conf.host-zones' )
+    backupFileGroup_2=( 'host-whitelist' "$basePath/bind" 'db.rpz.host-whitelist.local' )
+    backupFileGroup_3=( 'passwd' "$basePath/etc" 'passwd' )
+    backupFileGroup_4=( 'group' "$basePath/etc" 'group' )
+    backupFileGroup_5=( 'supervisord' "$basePath/php-fpm/conf.d" 'supervisord.conf' )
+    backupFileGroupArray=( $(createDataList 'backupFileGroup_' 5) )
+    for groupItem in ${backupFileGroupArray[@]};
+    do
+        eval groupTitle='"${'$groupItem'[0]}"'
+        eval groupPath='"${'$groupItem'[1]}"'
+        eval filePrefix='"${'$groupItem'[2]}"'
+
+        isDirExist "$groupPath"
+        if [ $? -eq 0 ]; then
+            for itemPath in $(find $groupPath -maxdepth 1 -type f -regextype posix-extended -regex ".*$filePrefix-[0-9]{2}-[0-9]{2}-[0-9]{4}.*"); do
+                echoMessage "Removing($groupTitle) $itemPath"
+                rm $itemPath
+                [ $? -ne 0 ] &&
+                    returnCode=2 &&
+                    echoMessage "Something went wrong during removing $itemPath"
+            done
+        fi
+    done
+
+    whmanContainer=whman
+    isContainersUp $whmanContainer
+    [ $? -ne 0 ] &&
+        echo -e "'docker' or conteiners were not found!" &&
+        return 1
+
+    homePath=$basePath/home
+    isDirExist "$homePath"
+    if [ $? -eq 0 ]; then
+        for backupDirName in $(find $homePath -maxdepth 1 -type d -regextype posix-extended -regex '.*-[0-9]{2}-[0-9]{2}-[0-9]{4}.*'); do
+            homeInternalPath=/home/$(basename $backupDirName)
+            echoMessage "Removing $backupDirName"
+            output=$(containerExec $whmanContainer rm -r $homeInternalPath)
+            [ $? -ne 0 ] &&
+                returnCode=2 &&
+                echoMessage "Something went wrong during removing $backupDirName"
+        done
+    fi
+
+    return $returnCode
+}
+
+function listHosts () #@ USAGE listHosts basePath startUID
+{
+    ## Initialize values
+    basePath=$1
+    startUID=$2
+
+    returnCode=0
+
+    groupDBFile=$basePath/etc/group
+    userDBFile=$basePath/etc/passwd
+    passwdFilePath=$userDBFile
+
+    startUIDRegEx=$(startIDToRegEx $startUID)
+
+    [ $startUIDRegEx == "null" ] &&
+        echo "0" &&
+        return 1
+
+    isFileExist $passwdFilePath
+    isFileExistExitCode=$?
+    [ $isFileExistExitCode -ne 0 ] &&
+        returnCode=$isFileExistExitCode &&
+        return $returnCode
+
+    grep -e "^.*:.:$startUIDRegEx:.*:.*:.*:.*$" $passwdFilePath | cut -d':' -f1 | sort -n
+    returnCode=$((${PIPESTATUS[@]/%/ |} 0))
+    return $returnCode
+}
+
+function verifyAllHosts () #@ USAGE verifyAllHosts basePath startUID verifyMode
+{
+    ## Initialize values
+    basePath=$1
+    startUID=$2
+    verifyMode='A'
+    if [ $# -gt 2 ] && [ $3 == 'N' ]; then
+        verifyMode=$3
+    fi
+
+    groupDBFile=$basePath/etc/group
+
+    for siteName in $(listHosts $basePath $startUID);
+    do
+        siteGroup=$(findUserGroup $groupDBFile $siteName)
+        findUserGroupExitcode=$?
+        if [ $findUserGroupExitcode -ne 0 ]; then
+            echoMessage "$siteName : The user($siteGroup) has no group!"
+        else
+            verifyHost $basePath $siteName $siteGroup $verifyMode
+            verifyHostExitCode=$?
+            if [ $verifyHostExitCode -eq 0 ]; then
+                echo "$siteName/$siteGroup : [OK]"
+            else
+                echo "$siteName/$siteGroup : [FAILED] $verifyHostExitCode"
+            fi
+        fi
+    done
+
+    return 0
+}
+
+#---------------------------------------
+# Main
+nextitem=$(lookForArgument "--main" "$@")
+[ $? -eq 0 ] &&
+    WebhostManager "$@" &&
+    exit $?

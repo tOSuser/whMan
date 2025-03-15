@@ -1,0 +1,32 @@
+;
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     ns1.vpnhome.int. root.home.int. (
+                             150         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@            IN      NS      ns1.vpnhome.int.
+@            IN      NS      ns2.vpnhome.int.
+@            IN      A       172.31.0.40
+www          IN      A       172.31.0.40
+cli          IN      A       172.31.0.10
+whman        IN      A       172.31.0.11
+ldap         IN      A       172.31.0.12
+lam          IN      A       172.31.0.13
+nodejs       IN      A       172.31.0.14
+python       IN      A       172.31.0.15
+openjdk      IN      A       172.31.0.16
+bind         IN      A       172.31.0.20
+ocserv       IN      A       172.31.0.21
+coturn       IN      A       172.31.0.22
+mysql        IN      A       172.31.0.30
+mongodb      IN      A       172.31.0.31
+redis        IN      A       172.31.0.32
+dynamodb     IN      A       172.31.0.33
+orientdb     IN      A       172.31.0.34
+nginx        IN      A       172.31.0.40
+phpfpm       IN      A       172.31.0.41

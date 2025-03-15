@@ -1,0 +1,41 @@
+#: Overloading values and data to test a script
+#:
+#: File : whman.overloader.shinc
+#
+#
+# Nexttop 2023-2025 (nexttop.se)
+# Maintenance nexttop -> hossein a.t. (osxx.com)
+#-------------------------------------------------
+#
+# Local variables:
+#  TESTORIGINALSCRIPT_PATH
+#  SCRIPT_PATH
+#
+#-------------------------------------------------
+#set -x
+## Import libraries
+[ -f $TESTORIGINALSCRIPT_PATH/test.mock.shinc ] &&
+    . $TESTORIGINALSCRIPT_PATH/test.mock.shinc
+
+#-------------------------------------------------
+function mail () #@ USAGE mail parameters
+{
+    mockCallCounter "${FUNCNAME[0]}"
+
+    outputValue="${FUNCNAME[0]}_return"
+    if [[ "${!outputValue}" != '' ]]; then
+        echo "${!outputValue}"
+    else
+        echo "Mail to '$3'"
+        echo "$2"
+        while read -r data; do
+            echo -e " $data"
+        done
+    fi
+
+    mockCallReturn "${FUNCNAME[0]}" 0
+    return $?
+}
+
+echo -e "****Runing in a test mode"
+echo -e "-------------------------------------------------"

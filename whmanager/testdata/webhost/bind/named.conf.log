@@ -1,0 +1,27 @@
+logging {
+//   category default { "misc"; };
+//   channel "misc" {
+//      file "/etc/bind/log/misc.log" versions 4 size 4m;
+//      print-time YES;
+//      print-severity YES;
+//      print-category YES;
+//   };
+
+   category queries { "query"; };
+   channel "query" {
+      file "/etc/bind/log/query.log" versions 4 size 4m;
+      print-time YES;
+      print-severity NO;
+      print-category NO;
+   };
+
+   category rpz { rpzlog; };
+   channel rpzlog {
+      file "/etc/bind/log/rpz.log" versions unlimited size 100m;
+      print-time yes;
+      print-category yes;
+      print-severity yes;
+      severity info;
+   };
+};
+
