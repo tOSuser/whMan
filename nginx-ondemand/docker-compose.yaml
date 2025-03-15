@@ -1,0 +1,56 @@
+services:
+  nginx:
+    build:
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${NGINX_IP}
+        NAMESERVER: ${NAMESERVER}
+        NETWORK_SUBNET=: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        NGINX_INTERNAL_PORT: ${NGINX_INTERNAL_PORT}
+        NGINX_EXTERNAL_PORT: ${NGINX_EXTERNAL_PORT}
+        PHPFPM_IP: ${PHPFPM_IP}
+        PHPFPM_DEFAULT_STARTPORT: ${PHPFPM_DEFAULT_STARTPORT}
+    image: nginx-ondemand_image
+    restart: always
+    container_name: nginx-ondemand
+    privileged: true
+    networks:
+      composenetwork:
+        ipv4_address: ${NGINX_IP}
+    ports:
+      - ${NGINX_EXTERNAL_PORT}:${NGINX_INTERNAL_PORT}
+    volumes:
+      - ${DOCKER_DATA_PATH}/nginx/www:/var/www/html
+      - ${DOCKER_DATA_PATH}/nginx/conf.d:/etc/nginx/conf.d
+      - ${DOCKER_DATA_PATH}/nginx/http.d:/etc/nginx/http.d
+      - ${DOCKER_DATA_PATH}/nginx/conf-samples:/etc/nginx/conf-samples
+      - ${DOCKER_DATA_PATH}/nginx/log:/var/lib/nginx/logs/
+volumes:
+  www:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/nginx/www
+  conf.d:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/nginx/conf.d
+  http.d:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/nginx/http.d
+networks:
+  composenetwork:
+    name: cnetwork
+    driver: bridge
+    ipam:
+     config:
+       - subnet: ${NETWORK_SUBNET}
+         gateway: ${NETWORK_GETWAY}

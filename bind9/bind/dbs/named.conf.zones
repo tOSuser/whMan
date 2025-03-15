@@ -1,0 +1,18 @@
+zone "home.int" {
+    type master;
+    file "/etc/bind/dbs/db.home.int";
+};
+
+zone "rpz.local" {
+    type master;
+    file "/etc/bind/db.rpz.local";
+    allow-query { localhost; };
+    allow-transfer { none; };
+};
+
+zone "rpz.whitelist.local" {
+    type master;
+    file "/etc/bind/db.rpz.whitelist.local";
+    allow-query { localhost; };
+    allow-transfer { none; };
+};

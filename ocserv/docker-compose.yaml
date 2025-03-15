@@ -1,0 +1,57 @@
+# Nginx service
+# version 0.1
+# Nexttop 2023-2025 (nexttop.se)
+# Maintenance nexttop -> hossein a.t. (osxx.com)
+#
+# This composer need a ,env file be composed
+#
+# Default env : .env
+# To compose:
+#   docker compose up -d
+#   docker compose down --rmi local -v
+services:
+  ocserv:
+    build:
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${OCSERV_IP}
+        NETWORK_SUBNET=: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        VPN_AUTH: ${VPN_AUTH}
+        VPN_DNS: ${VPN_DNS}
+        VPN_IPV4_NETWORK: ${VPN_IPV4_NETWORK}
+        VPN_IPV4_NETMASK: ${VPN_IPV4_NETMASK}
+        VPN_ROUTE: ${VPN_ROUTE}
+        VPN_NOROUTE: ${VPN_NOROUTE}
+        VPN_SELECT_GROUP: ${VPN_SELECT_GROUP}
+        VPN_SCRIPT: ${VPN_SCRIPT}
+    image: ocserv_image
+    restart: always
+    container_name: ocserv
+    privileged: true
+    networks:
+      composenetwork:
+        ipv4_address: ${OCSERV_IP}
+    hostname: www.example.com
+    ports:
+      - ${OCSERV_EXTERNAL_PORT}:${OCSERV_INTERNAL_PORT}
+    volumes:
+      - ${DOCKER_DATA_PATH}/ocserv:/etc/ocserv
+      - ${DOCKER_DATA_PATH}/ocserv/log:/var/log
+    environment:
+      - DNSIP=${VPN_DNS}
+      - CA_CN=VPN CA
+      - CA_ORG=Big Corp
+      - CA_DAYS=365
+      - SRV_CN=www.example.com
+      - SRV_ORG=Nexttop
+      - SRV_DAYS=365
+networks:
+  composenetwork:
+    name: cnetwork
+    driver: bridge
+    ipam:
+     config:
+       - subnet: ${NETWORK_SUBNET}
+         gateway: ${NETWORK_GETWAY}

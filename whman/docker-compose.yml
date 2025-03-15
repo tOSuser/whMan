@@ -1,0 +1,73 @@
+# whman service
+# version 0.1
+# Nexttop 2023-2025 (nexttop.se)
+# Maintenance nexttop -> hossein a.t. (osxx.com)
+#
+# This composer need a ,env file be composed
+#
+# Default env : .env
+# To compose:
+#   docker compose up -d
+#   docker compose down --rmi local -v
+services:
+  whman:
+    build:
+      dockerfile: "Dockerfile"
+      args:
+        DOCKER_DATA_PATH: ${DOCKER_DATA_PATH}
+        ADMINMAIL: ${ADMINMAIL}
+        ADDRESS: ${WHMAN_IP}
+        NETWORK_BASE: ${NETWORK_BASE}
+        NETWORK_SUBNET: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        NSLCD_IP: ${NSLCD_IP}
+        NSCD_IP: ${NSCD_IP}
+        CLI_IP: ${CLI_IP}
+        WHMAN_IP: ${WHMAN_IP}
+        LAM_IP: ${LAM_IP}
+        LDAP_IP: ${LDAP_IP}
+        NODEJS_IP: ${NODEJS_IP}
+        PYTHON3_IP: ${PYTHON3_IP}
+        OPENJDK_IP: ${OPENJDK_IP}
+        BIND9_IP: ${BIND9_IP}
+        OCSERV_IP: ${OCSERV_IP}
+        COTURN_IP: ${COTURN_IP}
+        MYSQL_IP: ${MYSQL_IP}
+        MONGODB_IP: ${MONGODB_IP}
+        REDIS_IP: ${REDIS_IP}
+        DYNAMODB_IP: ${DYNAMODB_IP}
+        ORIENTDB_IP: ${ORIENTDB_IP}
+        NGINX_IP: ${NGINX_IP}
+        PHPFPM_IP: ${PHPFPM_IP}
+        SSH_INTERNAL_PORT: ${SSH_INTERNAL_PORT}
+        SSH_EXTERNAL_PORT: ${SSH_EXTERNAL_PORT}
+        PHPFPM_DEFAULT_STARTPORT: ${PHPFPM_DEFAULT_STARTPORT}
+        PHPFPM_DEFAULT_ENDPORT: ${PHPFPM_DEFAULT_ENDPORT}
+        PHPFPM_DEFAULT_STARTGID: ${PHPFPM_DEFAULT_STARTGID}
+        PHPFPM_DEFAULT_STARTUID: ${PHPFPM_DEFAULT_STARTUID}
+        PHPFPM_EXTERNAL_PORT: ${PHPFPM_EXTERNAL_PORT}
+        NGINX_INTERNAL_PORT: ${NGINX_INTERNAL_PORT}
+        NGINX_EXTERNAL_PORT: ${NGINX_EXTERNAL_PORT}
+EXTERNAL_PORT}
+    image: whman_image
+    restart: always
+    container_name: whman
+    networks:
+      composenetwork:
+        ipv4_address: ${WHMAN_IP}
+#    ports:
+#      - ${SSH_EXTERNAL_PORT}:${SSH_INTERNAL_PORT}
+    volumes:
+      - ${DOCKER_DATA_PATH}/whman:/opt/whman
+      - ${DOCKER_DATA_PATH}/whman/home:/home
+      - ${DOCKER_DATA_PATH}/whman/log:/var/log
+      - ${DOCKER_DATA_PATH}/whman/etc:/var/etc
+networks:
+  composenetwork:
+    name: cnetwork
+    driver: bridge
+    ipam:
+     config:
+       - subnet: ${NETWORK_SUBNET}
+         gateway: ${NETWORK_GETWAY}

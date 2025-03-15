@@ -1,0 +1,6 @@
+zone "rpz.host-whitelist.local" {
+    type master;
+    file "/etc/bind/db.rpz.host-whitelist.local";
+    allow-query { localhost; };
+    allow-transfer { none; };
+};

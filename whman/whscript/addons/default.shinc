@@ -1,0 +1,8 @@
+function initializeSiteHome () #@ USAGE initializeSiteHome homePath skelPath
+{
+    ## Initialize values
+    homePath=$1
+    skelPath=$2
+
+    return 0
+}

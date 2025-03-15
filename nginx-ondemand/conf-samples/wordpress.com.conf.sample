@@ -1,0 +1,71 @@
+# default wordpress.com.conf.sample
+#
+# Nexttop 2023-2025 (nexttop.se)
+# Maintenance nexttop -> hossein a.t. (osxx.com)
+#
+server {
+    server_name osxx.com www.mywpsite.com;
+    root /var/www/html/mywpsite.com;
+
+    set_real_ip_from %NETWORK_GETWAY%;
+    real_ip_header X-Forwarded-For;
+    access_log /var/log/nginx/access.log main;
+    error_log /var/log/nginx/error.log;
+
+    # Global configuration file.
+    # ESSENTIAL : Configure Nginx Listening Port
+    listen [::]:%NGINX_INTERNAL_PORT%;
+    listen %NGINX_INTERNAL_PORT%;
+    # ESSENTIAL : Default file to serve. If the first file isn't found,
+    index index.php index.html index.htm;
+    # ESSENTIAL : no favicon logs
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+    # ESSENTIAL : robots.txt
+    location = /robots.txt {
+        allow all;
+        log_not_found off;
+        access_log off;
+    }
+    # ESSENTIAL : Configure 404 Pages
+    error_page 404 /404.html;
+    # ESSENTIAL : Configure 50x Pages
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /var/lib/nginx/html;
+    }
+    # SECURITY : Deny all attempts to access hidden files .abcde
+    location ~ /\\. {
+        deny all;
+    }
+    # PERFORMANCE : Set expires headers for static files and turn off logging.
+    location ~* ^.+\\.(js|css|swf|xml|txt|ogg|ogv|svg|svgz|eot|otf|woff|mp4|ttf|rss|atom|jpg|jpeg|gif|png|ico|zip|tgz|gz|rar|bz2|doc|xls|exe|ppt|tar|mid|midi|wav|bmp|rtf)$ {
+        access_log off; log_not_found off; expires 30d;
+    }
+
+    # WORDPRESS : Rewrite rules, sends everything through index.php and keeps the appended query string intact
+    location / {
+        try_files $uri $uri/ /index.php?q=$uri&$args;
+    }
+    # SECURITY : Deny all attempts to access PHP Files in the uploads directory
+    location ~* /(?:uploads|files)/.*\.php$ {
+	deny all;
+    }
+    # REQUIREMENTS : Enable PHP Support
+    location ~ \.php$ {
+        # SECURITY : Zero day Exploit Protection
+        try_files $uri =404;
+        # ENABLE : Enable PHP, listen fpm sock
+        fastcgi_split_path_info ^(.+\\.php)(/.+)$;
+        fastcgi_pass %PHPFPM_IP%:%PHPFPM_DEFAULT_STARTPORT%;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+
+    # PLUGINS : Enable Rewrite Rules for Yoast SEO SiteMap
+    rewrite ^/sitemap_index\\.xml$ /index.php?sitemap=1 last;
+    rewrite ^/([^/]+?)-sitemap([0-9]+)?\\.xml$ /index.php?sitemap=$1&sitemap_n=$2 last;
+}

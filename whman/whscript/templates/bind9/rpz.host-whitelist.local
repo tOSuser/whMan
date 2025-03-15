@@ -1,0 +1,4 @@
+#SITENAME# IN CNAME rpz-passthru.
+*.#SITENAME# IN CNAME rpz-passthru.
+#SITENAME#.int IN CNAME rpz-passthru.
+*.#SITENAME#.int IN CNAME rpz-passthru.

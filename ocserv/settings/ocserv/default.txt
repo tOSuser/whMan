@@ -1,0 +1,124 @@
+# Limit the number of identical clients (i.e., users connecting
+# multiple times). Unset or set to zero for unlimited.
+#max-same-clients = 2
+
+# Stats report time. The number of seconds after which each
+# worker process will report its usage statistics (number of
+# bytes transferred etc). This is useful when accounting like
+# radius is in use.
+#stats-report-time = 360
+
+# Keepalive in seconds
+#keepalive = 32400
+
+# Dead peer detection in seconds.
+# Note that when the client is behind a NAT this value
+# needs to be short enough to prevent the NAT disassociating
+# his UDP session from the port number. Otherwise the client
+# could have his UDP connection stalled, for several minutes.
+#dpd = 90
+
+# Dead peer detection for mobile clients. That needs to
+# be higher to prevent such clients being awaken too
+# often by the DPD messages, and save battery.
+# The mobile clients are distinguished from the header
+# 'X-AnyConnect-Identifier-Platform'.
+#mobile-dpd = 1800
+
+# The time (in seconds) that a client is allowed to stay idle (no traffic)
+# before being disconnected. Unset to disable.
+#idle-timeout = 1200
+
+# The time (in seconds) that a client is allowed to stay connected
+# Unset to disable. When set a client will be disconnected after being
+# continuously connected for this amount of time, and its cookies will
+# be invalidated (i.e., re-authentication will be required).
+#session-timeout = 86400
+
+# The time (in seconds) that a mobile client is allowed to stay idle (no
+# traffic) before being disconnected. Unset to disable.
+#mobile-idle-timeout = 2400
+
+# Set the VPN worker process into a specific cgroup. This is Linux
+# specific and can be set per user/group or globally.
+#cgroup = "cpuset,cpu:test"
+
+# The pool of addresses that leases will be given from. If the leases
+# are given via Radius, or via the explicit-ip? per-user config option then
+# these network values should contain a network with at least a single
+# address that will remain under the full control of ocserv (that is
+# to be able to assign the local part of the tun device address).
+# Note that, you could use addresses from a subnet of your LAN network if you
+# enable [proxy arp in the LAN interface](http://ocserv.openconnect-vpn.net/recipes-ocserv-pseudo-bridge.html);
+# in that case it is recommended to set ping-leases to true.
+#ipv4-network = 192.168.1.0
+#ipv4-netmask = 255.255.255.0
+
+# An alternative way of specifying the network:
+#ipv4-network = 192.168.1.0/24
+
+# The IPv6 subnet that leases will be given from.
+#ipv6-network = fda9:4efe:7e3b:03ea::/48
+
+# Whether to tunnel all DNS queries via the VPN. This is the default
+# when a default route is set.
+#tunnel-all-dns = true
+
+# The advertised DNS server. Use multiple lines for
+# multiple servers.
+# dns = fc00::4be0
+#dns = 192.168.1.2
+
+# The NBNS server (if any)
+#nbns = 192.168.1.3
+
+# Use this option to set a link MTU value to the incoming
+# connections. Unset to use the default MTU of the TUN device.
+# Note that the MTU is negotiated using the value set and the
+# value sent by the peer.
+#mtu = 1420
+
+# Unset to enable bandwidth restrictions (in bytes/second). The
+# setting here is global, but can also be set per user or per group.
+# The RX direction refers to received data on the server from the
+# VPN client, and the TX refers to transmitted data by the server
+# to the client.
+#rx-data-per-sec = 40000
+#tx-data-per-sec = 40000
+
+# Routes to be forwarded to the client. If you need the
+# client to forward routes to the server, you may use the
+# config-per-user/group or even connect and disconnect scripts.
+#
+# To set the server as the default gateway for the client just
+# comment out all routes from the server, or use the special keyword
+# 'default'.
+
+#route = 10.10.10.0/255.255.255.0
+#route = 192.168.0.0/255.255.0.0
+#route = fef4:db8:1000:1001::/64
+#route = default
+
+# Subsets of the routes above that will not be routed by
+# the server.
+
+#no-route = 192.168.5.0/255.255.255.0
+
+# Note the that following two firewalling options currently are available
+# in Linux systems with iptables software.
+
+# If set, the script /usr/libexec/ocserv-fw will be called to restrict
+# the user to its allowed routes and prevent him from accessing
+# any other routes. In case of defaultroute, the no-routes are restricted.
+# All the routes applied by ocserv can be reverted using /usr/libexec/ocserv-fw
+# --removeall. This option can be set globally or in the per-user configuration.
+#restrict-user-to-routes = true
+
+# This option implies restrict-user-to-routes set to true. If set, the
+# script /usr/libexec/ocserv-fw will be called to restrict the user to
+# access specific ports in the network. This option can be set globally
+# or in the per-user configuration.
+#restrict-user-to-ports = "tcp(443), tcp(80), udp(443), sctp(99), tcp(583), icmp(), icmpv6()"
+
+# You could also use negation, i.e., block the user from accessing these ports only.
+#restrict-user-to-ports = "!(tcp(443), tcp(80))"

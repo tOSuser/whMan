@@ -1,0 +1,4 @@
+zone "#SITENAME#.int" {
+   type master;
+   file "/etc/bind/dbs/db.#SITENAME#.int";
+};

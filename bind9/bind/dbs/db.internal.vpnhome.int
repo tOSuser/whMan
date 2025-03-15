@@ -1,0 +1,17 @@
+;$include "/etc/bind/db.external.nexttop.se"
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     ns1.vpnhome.int. root.vpnhome.int. (
+                            150         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@                       IN      NS              ns1.vpnhome.int.
+@                       IN      NS              ns2.vpnhome.int.
+@                       IN      A               %NETWORK_GETWAY%
+www                     IN      A               %NETWORK_GETWAY%
+ns1                     IN      A               %NETWORK_GETWAY%
+ns2                     IN      A               %NETWORK_GETWAY%

@@ -1,0 +1,45 @@
+# php-fpm service
+# version 0.1
+# Nexttop 2023-2025 (nexttop.se)
+# Maintenance nexttop -> hossein a.t. (osxx.com)
+#
+# This composer need a ,env file be composed
+#
+# Default env : .env
+# To compose:
+#   docker compose up -d
+#   docker compose down --rmi local -v
+services:
+  php-fpm:
+    build:
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${PHPFPM_IP}
+        NAMESERVER: ${NAMESERVER}
+        NETWORK_SUBNET=: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        PHP_INI_DIR: ${PHP_INI_DIR}
+        PHPFPM_DEFAULT_STARTPORT: ${PHPFPM_DEFAULT_STARTPORT}
+        PHPFPM_DEFAULT_ENDPORT: ${PHPFPM_DEFAULT_ENDPORT}
+    image: php-fpm-ondemand_image
+    restart: always
+    container_name: php-fpm-ondemand
+    privileged: true
+    networks:
+      composenetwork:
+        ipv4_address: ${PHPFPM_IP}
+    ports:
+      - ${PHPFPM_EXTERNAL_PORT}:${PHPFPM_DEFAULT_STARTPORT}
+    volumes:
+      - ${DOCKER_DATA_PATH}/php-fpm/log:/var/log
+      - ${DOCKER_DATA_PATH}/php-fpm/conf.d:/etc/supervisor/conf.d
+      - ${DOCKER_DATA_PATH}/php-fpm/pool.d:${PHP_INI_DIR}/pool.d
+networks:
+  composenetwork:
+    name: cnetwork
+    driver: bridge
+    ipam:
+     config:
+       - subnet: ${NETWORK_SUBNET}
+         gateway: ${NETWORK_GETWAY}

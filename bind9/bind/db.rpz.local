@@ -1,0 +1,9 @@
+$TTL 300
+@ SOA localhost. root.localhost. 1730484300 43200 3600 259200 300
+  NS  localhost.
+
+;
+; Title: local
+; Syntax: RPZ
+;
+* IN CNAME .

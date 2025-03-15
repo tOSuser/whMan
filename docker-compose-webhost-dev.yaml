@@ -1,0 +1,257 @@
+# Web hosting services based on Nginx and php-fpm
+# version 0.1
+# Nexttop 2023-2025 (nexttop.se)
+# Maintenance nexttop -> hossein a.t. (osxx.com)
+#
+# This composer need a ,env file be composed
+#
+# Default env : .env.webhost
+# To compose:
+#   docker compose --env-file .env.webhost-dev -f docker-compose-webhost-dev.yaml up -d
+#   docker compose --env-file ".env.webhost-dev" -f docker-compose-webhost-dev.yaml down --rmi local -v
+services:
+  whman:
+    build:
+      context: "whman"
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${WHMAN_IP}
+        DOCKER_DATA_PATH: ${DOCKER_DATA_PATH}
+        ADMINMAIL: ${ADMINMAIL}
+        NETWORK_BASE: ${NETWORK_BASE}
+        NETWORK_SUBNET: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        NSLCD_IP: ${NSLCD_IP}
+        NSCD_IP: ${NSCD_IP}
+        CLI_IP: ${CLI_IP}
+        WHMAN_IP: ${WHMAN_IP}
+        LAM_IP: ${LAM_IP}
+        LDAP_IP: ${LDAP_IP}
+        NODEJS_IP: ${NODEJS_IP}
+        PYTHON3_IP: ${PYTHON3_IP}
+        OPENJDK_IP: ${OPENJDK_IP}
+        BIND9_IP: ${BIND9_IP}
+        OCSERV_IP: ${OCSERV_IP}
+        COTURN_IP: ${COTURN_IP}
+        MYSQL_IP: ${MYSQL_IP}
+        MONGODB_IP: ${MONGODB_IP}
+        REDIS_IP: ${REDIS_IP}
+        DYNAMODB_IP: ${DYNAMODB_IP}
+        ORIENTDB_IP: ${ORIENTDB_IP}
+        NGINX_IP: ${NGINX_IP}
+        PHPFPM_IP: ${PHPFPM_IP}
+        SSH_INTERNAL_PORT: ${SSH_INTERNAL_PORT}
+        SSH_EXTERNAL_PORT: ${SSH_EXTERNAL_PORT}
+        PHPFPM_DEFAULT_STARTPORT: ${PHPFPM_DEFAULT_STARTPORT}
+        PHPFPM_DEFAULT_ENDPORT: ${PHPFPM_DEFAULT_ENDPORT}
+        PHPFPM_DEFAULT_STARTGID: ${PHPFPM_DEFAULT_STARTGID}
+        PHPFPM_DEFAULT_STARTUID: ${PHPFPM_DEFAULT_STARTUID}
+        PHPFPM_EXTERNAL_PORT: ${PHPFPM_EXTERNAL_PORT}
+        NGINX_INTERNAL_PORT: ${NGINX_INTERNAL_PORT}
+        NGINX_EXTERNAL_PORT: ${NGINX_EXTERNAL_PORT}
+    image: whman_image
+    restart: always
+    container_name: whman
+    dns:
+      - ${BIND9_IP}
+    networks:
+      composenetwork:
+        ipv4_address: ${WHMAN_IP}
+#    ports:
+#      - ${SSH_EXTERNAL_PORT}:${SSH_INTERNAL_PORT}
+    volumes:
+      - ${DOCKER_DATA_PATH}/home:/home
+      - ${DOCKER_DATA_PATH}/etc:/var/etc
+      - ${DOCKER_DATA_PATH}/:/opt/whman
+      - ${DOCKER_DATA_PATH}/whman/log:/var/log
+  bind9:
+    build:
+      context: "bind9"
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${BIND9_IP}
+        NETWORK_SUBNET: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        NSLCD_IP: ${NSLCD_IP}
+        NSCD_IP: ${NSCD_IP}
+        CLI_IP: ${CLI_IP}
+        WHMAN_IP: ${WHMAN_IP}
+        LAM_IP: ${LAM_IP}
+        LDAP_IP: ${LDAP_IP}
+        NODEJS_IP: ${NODEJS_IP}
+        PYTHON3_IP: ${PYTHON3_IP}
+        OPENJDK_IP: ${OPENJDK_IP}
+        BIND9_IP: ${BIND9_IP}
+        OCSERV_IP: ${OCSERV_IP}
+        COTURN_IP: ${COTURN_IP}
+        MYSQL_IP: ${MYSQL_IP}
+        MONGODB_IP: ${MONGODB_IP}
+        REDIS_IP: ${REDIS_IP}
+        DYNAMODB_IP: ${DYNAMODB_IP}
+        ORIENTDB_IP: ${ORIENTDB_IP}
+        NGINX_IP: ${NGINX_IP}
+        PHPFPM_IP: ${PHPFPM_IP}
+    image: bind9_image
+    restart: always
+    container_name: bind9
+    privileged: true
+    dns:
+      - ${BIND9_IP}
+    networks:
+      composenetwork:
+        ipv4_address: ${BIND9_IP}
+    volumes:
+      - ${DOCKER_DATA_PATH}/bind:/etc/bind
+      - ${DOCKER_DATA_PATH}/bind/log:/var/log
+  ocserv:
+    build:
+      context: "ocserv"
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${OCSERV_IP}
+        NETWORK_SUBNET=: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        VPN_AUTH: ${VPN_AUTH}
+        VPN_DNS: ${VPN_DNS}
+        VPN_IPV4_NETWORK: ${VPN_IPV4_NETWORK}
+        VPN_IPV4_NETMASK: ${VPN_IPV4_NETMASK}
+        VPN_ROUTE: ${VPN_ROUTE}
+        VPN_NOROUTE: ${VPN_NOROUTE}
+        VPN_SELECT_GROUP: ${VPN_SELECT_GROUP}
+        VPN_SCRIPT: ${VPN_SCRIPT}
+    image: ocserv_image
+    restart: always
+    container_name: ocserv
+    privileged: true
+    dns:
+      - ${BIND9_IP}
+    networks:
+      composenetwork:
+        ipv4_address: ${OCSERV_IP}
+    hostname: www.example.com
+    ports:
+      - ${OCSERV_EXTERNAL_PORT}:${OCSERV_INTERNAL_PORT}
+    volumes:
+      - ${DOCKER_DATA_PATH}/etc:/var/etc
+      - ${DOCKER_DATA_PATH}/ocserv:/etc/ocserv
+      - ${DOCKER_DATA_PATH}/ocserv/log:/var/log
+    environment:
+      - DNSIP=${BIND9_IP}
+      - CA_CN=VPN CA
+      - CA_ORG=Big Corp
+      - CA_DAYS=365
+      - SRV_CN=www.example.com
+      - SRV_ORG=Nexttop
+      - SRV_DAYS=365
+  php-fpm:
+    build:
+      context: "php-fpm-ondemand"
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${PHPFPM_IP}
+        NETWORK_SUBNET=: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        PHP_INI_DIR: ${PHP_INI_DIR}
+        PHPFPM_DEFAULT_STARTPORT: ${PHPFPM_DEFAULT_STARTPORT}
+        PHPFPM_DEFAULT_ENDPORT: ${PHPFPM_DEFAULT_ENDPORT}
+    image: php-fpm_image
+    restart: always
+    container_name: php-fpm
+    privileged: true
+    dns:
+      - ${BIND9_IP}
+    networks:
+      composenetwork:
+        ipv4_address: ${PHPFPM_IP}
+    volumes:
+      - ${DOCKER_DATA_PATH}/etc:/var/etc
+      - ${DOCKER_DATA_PATH}/php-fpm/log:/var/log
+      - ${DOCKER_DATA_PATH}/home:/var/www/html
+      - ${DOCKER_DATA_PATH}/php-fpm/conf.d:/etc/supervisor/conf.d
+      - ${DOCKER_DATA_PATH}/php-fpm/pool.d:${PHP_INI_DIR}/pool.d
+  nginx:
+    build:
+      context: "nginx-ondemand"
+      dockerfile: "Dockerfile"
+      args:
+        ADDRESS: ${NGINX_IP}
+        NETWORK_SUBNET=: ${NETWORK_SUBNET}
+        NETWORK_MASK: ${NETWORK_MASK}
+        NETWORK_GETWAY: ${NETWORK_GETWAY}
+        NGINX_INTERNAL_PORT: ${NGINX_INTERNAL_PORT}
+        NGINX_EXTERNAL_PORT: ${NGINX_EXTERNAL_PORT}
+        PHPFPM_IP: ${PHPFPM_IP}
+        PHPFPM_DEFAULT_STARTPORT: ${PHPFPM_DEFAULT_STARTPORT}
+    image: nginx_image
+    restart: always
+    container_name: nginx
+    privileged: true
+    dns:
+      - ${BIND9_IP}
+    networks:
+      composenetwork:
+        ipv4_address: ${NGINX_IP}
+    ports:
+      - ${NGINX_EXTERNAL_PORT}:${NGINX_INTERNAL_PORT}
+    volumes:
+      - ${DOCKER_DATA_PATH}/etc:/var/etc
+      - ${DOCKER_DATA_PATH}/home:/var/www/html
+      - ${DOCKER_DATA_PATH}/nginx/conf.d:/etc/nginx/conf.d
+      - ${DOCKER_DATA_PATH}/nginx/http.d:/etc/nginx/http.d
+      - ${DOCKER_DATA_PATH}/nginx/conf-samples:/etc/nginx/conf-samples
+      - ${DOCKER_DATA_PATH}/nginx/log:/var/lib/nginx/logs/
+networks:
+  composenetwork:
+    name: webhostnetwork
+    driver: bridge
+    ipam:
+     config:
+       - subnet: ${NETWORK_SUBNET}
+         gateway: ${NETWORK_GETWAY}
+volumes:
+  www:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/nginx/www
+  conf.d:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/nginx/conf.d
+  http.d:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/nginx/http.d
+  bind:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/bind
+  ocserv:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/ocserv
+  ldap.data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/ldap
+  usershome:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DOCKER_DATA_PATH}/home

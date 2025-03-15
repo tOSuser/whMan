@@ -1,0 +1,16 @@
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     ns1.vpnhome.int. root.vpnhome.int. (
+                            125         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@                       IN      NS              ns1.vpnhome.int.
+@                       IN      NS              ns2.vpnhome.int.
+@                       IN      A               %NGINX_IP%
+www                     IN      A               %NGINX_IP%
+ns1                     IN      A               %BIND9_IP%
+ns2                     IN      A               %BIND9_IP%
